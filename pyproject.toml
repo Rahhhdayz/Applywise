@@ -5,8 +5,10 @@ build-backend = "hatchling.build"
 [project]
 name = "jobagent"
 version = "0.1.0"
-description = "Foundation for deterministic job discovery and preparation workflows."
+description = "Job-discovery and application-prep pipeline: deterministic Python, narrowly scoped AI, human-controlled submit."
 readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Rahul Sharma" }]
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "beautifulsoup4>=4.12",
@@ -20,6 +22,11 @@ dependencies = [
     "SQLAlchemy>=2.0",
     "python-jobspy>=1.1.82",
 ]
+
+[project.urls]
+Homepage = "https://github.com/Rahhhdayz/Applywise"
+Repository = "https://github.com/Rahhhdayz/Applywise"
+Issues = "https://github.com/Rahhhdayz/Applywise/issues"
 
 [dependency-groups]
 dev = [
