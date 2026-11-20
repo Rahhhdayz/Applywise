@@ -1,0 +1,12 @@
+{
+  "tenant": "contoso",
+  "label": "Are you legally authorized to work in Canada?",
+  "kind": "radio",
+  "options": [
+    "Yes",
+    "No"
+  ],
+  "wrong_source": "auth.authorized_us",
+  "expected": "skip",
+  "problem": "wrong_value"
+}

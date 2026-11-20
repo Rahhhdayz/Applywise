@@ -1,0 +1,19 @@
+[Unit]
+Description=JobAgent daily pipeline (scrape, score, queue, prepare, Notion)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=jobagent
+WorkingDirectory=/home/jobagent/jobagent
+Environment=TZ=America/New_York
+Environment=PATH=/home/jobagent/.local/bin:/home/jobagent/.npm-global/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/home/jobagent/.local/bin/uv run jobagent run cycle --config config/search_profiles.yaml
+ExecStartPost=/home/jobagent/.local/bin/uv run jobagent digest send
+TimeoutStartSec=3h
+# The job only needs its repo plus ~/.claude, ~/.codex and the uv cache.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ReadWritePaths=/home/jobagent

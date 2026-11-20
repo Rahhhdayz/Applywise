@@ -1,0 +1,17 @@
+{
+  "tenant": "known",
+  "label": "If you are unable to start on the start date listed in the posting, please explain your availability",
+  "kind": "textarea",
+  "options": [],
+  "wrong_source": "answer:start date",
+  "expected": "skip",
+  "problem": "wrong_value",
+  "answers": [
+    {
+      "match": [
+        "start date"
+      ],
+      "value": "01/01/2030"
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "tenant": "known",
+  "label": "Start date",
+  "kind": "select",
+  "options": [
+    "Select One",
+    "Before 01/01/2030",
+    "After 01/01/2030"
+  ],
+  "wrong_source": "answer:start date",
+  "expected": "skip",
+  "problem": "wrong_value",
+  "answers": [
+    {
+      "match": [
+        "start date"
+      ],
+      "value": "01/01/2030"
+    }
+  ]
+}

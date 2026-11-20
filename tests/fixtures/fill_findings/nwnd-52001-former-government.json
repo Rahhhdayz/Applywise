@@ -1,0 +1,12 @@
+{
+  "tenant": "nwnd",
+  "label": "Are you currently or have you been a U.S. federal government civilian or military employee?",
+  "kind": "radio",
+  "options": [
+    "Yes",
+    "No"
+  ],
+  "expected": "screening.former_government",
+  "wrong_source": "custom",
+  "problem": "left_empty"
+}

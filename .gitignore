@@ -1,0 +1,64 @@
+.env
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+data/*.sqlite3
+data/*.db
+candidate/profile.yaml
+candidate/experience.yaml
+candidate/skills.yaml
+candidate/preferences.yaml
+candidate/application.yaml
+candidate/master_resume.docx
+candidate/master_resume.pdf
+candidate/cover_letter_template.docx
+candidate/references/
+out/
+logs/
+data/browser-profile*/
+
+# Personal or machine-local, never committed
+candidate/previous/
+.DS_Store
+data/*.lock
+backups/
+config/gmail_jobagent_filter.xml
+data/bot_context.json
+data/bot_context.tmp
+data/telegram_offset
+# Personal profile briefs (contact details); kept local
+profile.md
+portfolio.md
+
+# Secrets: every env file except the placeholder template
+.env.*
+!.env.example
+*.pem
+*.key
+credentials*.json
+token*.json
+.claude/settings.local.json
+
+# SQLite side files (journals, WAL) and any copies
+data/*.sqlite3-*
+*.sqlite3
+*.sqlite3-*
+
+# Candidate truth: only the synthetic *.example.yaml templates are public
+candidate/*
+!candidate/*.example.yaml
+
+# Real (non-example) configuration
+config/settings.yaml
+config/search_profiles.yaml
+
+# Logs anywhere
+*.log
+
+# Personal job-search notes and handoff docs (local only)
+context.md
+learnings.md
+plan_22.md
+tasks/

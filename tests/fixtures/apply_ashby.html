@@ -1,0 +1,23 @@
+<!doctype html>
+<html>
+<body>
+<form onsubmit="window.__submitted = true; return false;">
+  <input type="text" name="firstName" aria-label="First Name">
+  <input type="text" name="lastName" aria-label="Last Name">
+  <input type="email" name="email" aria-label="Email">
+  <input type="text" name="github" aria-label="GitHub Profile">
+  <input type="file" name="resume" aria-label="Resume/CV" required>
+
+  <select aria-label="Gender" name="gender">
+    <option value="">Select</option>
+    <option value="m">Male</option>
+    <option value="f">Female</option>
+    <option value="decline">Decline to self-identify</option>
+  </select>
+
+  <textarea aria-label="Cover Letter" name="cover"></textarea>
+
+  <button type="submit">Submit</button>
+</form>
+</body>
+</html>

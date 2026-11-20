@@ -1,0 +1,84 @@
+profiles:
+  - name: early-career-security
+    enabled: true
+    keywords:
+      - Entry Level Security Analyst
+      - Entry Level Cybersecurity
+      - Junior Security Engineer
+      - Junior Security Analyst
+      - Associate Security Engineer
+      - Associate Security Analyst
+      - New Grad Security Engineer
+      - Security Engineer New Grad
+      - Early Career Cybersecurity
+      - Graduate Cybersecurity Analyst
+    locations:
+      - United States
+    remote: include
+    freshness_days: 7
+  - name: security-engineering
+    enabled: true
+    keywords:
+      - Security Engineer
+      - Cybersecurity Engineer
+      - Security Analyst
+      - SOC Analyst
+      - Detection Engineer
+      - Threat Detection Engineer
+      - Security Automation Engineer
+      - Vulnerability Management Analyst
+      - Vulnerability Engineer
+      - Threat Intelligence Analyst
+      - Incident Response Analyst
+      - SIEM Engineer
+      - Cloud Security Analyst
+      - Cloud Security Engineer
+      - Product Security Analyst
+      - Application Security Analyst
+    locations:
+      - United States
+    remote: include
+    freshness_days: 7
+  - name: ai-security
+    enabled: true
+    keywords:
+      - AI Security Engineer
+      - GenAI Security
+      - LLM Security
+      - AI Red Team
+      - Security Automation
+    locations:
+      - United States
+    remote: include
+    freshness_days: 7
+  # International (Master, 2026-10-25): one shared keyword list per country. `country` picks
+  # jobspy's Indeed/Glassdoor domain; ZipRecruiter (US/Canada) and Glassdoor-Japan are skipped.
+  - name: intl-japan
+    enabled: true
+    keywords: &intl_keywords
+      - Security Engineer
+      - Security Analyst
+      - SOC Analyst
+      - Cloud Security Engineer
+      - Detection Engineer
+      - Vulnerability Management
+      - Threat Intelligence Analyst
+      - Graduate Cybersecurity
+    locations: [Japan]
+    country: Japan
+    remote: include
+    freshness_days: 7
+  - name: intl-france
+    enabled: true
+    keywords: *intl_keywords
+    locations: [France]
+    country: France
+    remote: include
+    freshness_days: 7
+  - name: intl-australia
+    enabled: false  # Master, 2026-11-02: stop searching Australia
+    keywords: *intl_keywords
+    locations: [Australia]
+    country: Australia
+    remote: include
+    freshness_days: 7

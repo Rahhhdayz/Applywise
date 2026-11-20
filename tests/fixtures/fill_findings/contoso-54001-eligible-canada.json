@@ -1,0 +1,20 @@
+{
+  "tenant": "contoso",
+  "label": "Are you eligible to work in Canada?",
+  "kind": "radio",
+  "options": [
+    "Yes",
+    "No"
+  ],
+  "wrong_source": "answer:eligible to work",
+  "expected": "skip",
+  "problem": "wrong_value",
+  "answers": [
+    {
+      "match": [
+        "eligible to work"
+      ],
+      "value": "Yes"
+    }
+  ]
+}

@@ -1,0 +1,37 @@
+contact:
+  first_name: Example
+  last_name: Candidate
+  email: example.candidate@example.test
+  phone: "+1-555-0100"
+  phone_device_type: Mobile
+  city: Boston
+  state: MA
+  postal_code: ""
+  country: United States
+links:
+  linkedin: https://www.linkedin.com/in/example-candidate
+  github: https://github.com/example-candidate
+  portfolio: ""
+work_authorization:
+  status: "I have an active temporary work permit"
+  authorized_us: "Yes"
+  requires_sponsorship: "No"
+eeo:
+  gender: decline
+  hispanic: decline
+  race: decline
+  veteran: decline
+  disability: decline
+answers:
+  - match: ["how did you hear"]
+    value: "Company website"
+  - match: ["willing to relocate"]
+    value: "Yes"
+certifications:
+  - name: CompTIA SecAI+
+    number: EXAMPLE0001
+    exam_date: 01/15/2026
+    issued_date: 01/15/2026
+    expiration_date: 01/15/2029
+    score: ""
+    file: ""

@@ -1,0 +1,9 @@
+{
+  "tenant": "known",
+  "label": "Are you currently located in the state of Massachusetts?",
+  "kind": "text",
+  "options": [],
+  "wrong_source": "contact.state",
+  "expected": "skip",
+  "problem": "wrong_value"
+}

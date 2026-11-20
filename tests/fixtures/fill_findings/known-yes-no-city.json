@@ -1,0 +1,12 @@
+{
+  "tenant": "known",
+  "label": "Do you currently live in the city of Boston?",
+  "kind": "radio",
+  "options": [
+    "Yes",
+    "No"
+  ],
+  "wrong_source": "contact.city",
+  "expected": "skip",
+  "problem": "wrong_value"
+}

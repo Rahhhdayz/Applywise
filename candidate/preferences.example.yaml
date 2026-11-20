@@ -1,0 +1,78 @@
+preferences:
+  primary_roles:
+    - Security Engineer
+    - Cybersecurity Engineer
+    - Security Automation Engineer
+    - Detection Engineer
+    - Security Analyst
+    - SOC Analyst
+  secondary_roles:
+    - Vulnerability Management Analyst
+    - Threat Intelligence Analyst
+    - Incident Response Analyst
+    - Cloud Security Analyst
+    - Application Security Analyst
+  blocked_title_terms: [Senior, "Sr.", "Sr ", Staff, Principal, Lead, Manager, Director, VP]
+  employment_types: [full_time]
+  # Titles containing one of these whole words/phrases rank higher (early-career boost).
+  early_career_terms:
+    - junior
+    - jr
+    - entry level
+    - entry-level
+    - associate
+    - new grad
+    - new graduate
+    - graduate
+    - early career
+    - apprentice
+    - university
+    - i
+    - "1"
+  # Only titles containing one of these whole words are scored (free, deterministic).
+  required_title_terms:
+    - security
+    - cybersecurity
+    - cyber
+    - infosec
+    - soc
+    - threat
+    - vulnerability
+    - incident
+    - detection
+    - siem
+    - grc
+    - compliance
+    - risk
+    - forensic
+    - forensics
+    - red team
+    - appsec
+    - iam
+    - penetration
+    - pentest
+  remote_us: true
+  relocation: true
+  preferred_locations: []   # e.g. ["Austin, TX", "CA"]; non-empty = hard filter (remote still passes)
+  blocked_companies: []     # e.g. [Jobright]; never suggested
+  eligibility:
+    max_required_years: 3
+    reject_clearance_required: true
+    reject_explicit_citizenship_requirement: false
+    reject_no_sponsorship: false
+  daily_queue:
+    minimum_target: 15
+    target: 18
+    maximum_target: 20
+    international_maximum: 0   # slots of maximum_target reserved for non-US jobs; 0 = one shared queue
+  scoring:
+    semantic_score_weight: 0.6
+    freshness_weight: 0.1
+    role_priority_weight: 0.05
+    location_weight: 0.05
+    early_career_weight: 0.1
+    recent_posting_weight: 0.1    # boost for jobs posted within recent_posting_hours
+    recent_posting_hours: 24
+    minimum_ai_score: 75
+    exceptional_score: 95
+    max_jobs_per_run: 100

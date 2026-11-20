@@ -1,0 +1,34 @@
+# Example settings for future workflows. The Milestone 1 CLI has its own --database
+# argument and does not load this file yet.
+database_path: data/jobagent.sqlite3
+daily_target: 15
+minimum_score: 0.0
+
+# Semantic-scoring settings. The model itself is supplied through
+# JOBAGENT_SCORING_MODEL so no provider model is hardcoded in application code.
+scoring:
+  max_jobs_per_run: 100
+  semantic_score_weight: 0.80
+  freshness_weight: 0.10
+  role_priority_weight: 0.05
+  location_weight: 0.05
+
+# Board scraping via python-jobspy. One jobspy call per search-profile query covers
+# every listed site. Keep these limits modest: boards (LinkedIn especially) may block.
+scrape:
+  sites: [linkedin, indeed, glassdoor, google, zip_recruiter]
+  results_wanted: 25        # per site, per query
+  delay_seconds: 5          # pause between queries
+  country_indeed: USA
+  linkedin_fetch_description: true   # full text + direct employer URL; slower
+
+writing:
+  max_packets_per_run: 20
+  backend: claude_code_cli
+documents:
+  output_directory: out
+  pdf_page_limit: 2
+scheduling:
+  timezone: America/New_York
+  discovery_cycles: ["08:00", "12:00", "16:00"]
+  digest_time: "20:00"

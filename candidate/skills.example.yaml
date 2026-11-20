@@ -1,0 +1,18 @@
+skills:
+  programming:
+    - canonical_name: Python
+      aliases: [python3]
+      confidence: strong
+      evidence_ids: [exp_001_fact_01]
+    - canonical_name: Bash
+      confidence: working
+  security:
+    - canonical_name: SIEM
+      evidence_ids: [exp_001_fact_02]
+    - canonical_name: vulnerability management
+      evidence_ids: [exp_001_fact_01]
+    - canonical_name: incident response
+      evidence_ids: [exp_001_fact_02]
+  cloud:
+    - canonical_name: AWS
+      confidence: familiar

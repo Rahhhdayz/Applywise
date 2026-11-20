@@ -1,0 +1,13 @@
+experiences:
+  - id: exp_001
+    organization: Example Security Lab
+    title: Security Intern
+    start_date: 2025-01
+    end_date: 2025-06
+    facts:
+      - id: exp_001_fact_01
+        text: Built an automated vulnerability reporting pipeline.
+        skills: [Python, vulnerability management]
+      - id: exp_001_fact_02
+        text: Investigated security alerts using a SIEM.
+        skills: [SIEM, incident response]

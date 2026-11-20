@@ -1,0 +1,12 @@
+{
+  "tenant": "known",
+  "label": "Are you legally authorized to work in the United States?",
+  "kind": "radio",
+  "options": [
+    "Yes",
+    "No"
+  ],
+  "wrong_source": "",
+  "expected": "auth.authorized_us",
+  "problem": "wrong_value"
+}

@@ -1,0 +1,21 @@
+{
+  "tenant": "known",
+  "label": "How did you hear about us? Was it through a referral?",
+  "kind": "select",
+  "options": [
+    "Select One",
+    "Yes",
+    "No"
+  ],
+  "wrong_source": "answer:how did you hear",
+  "expected": "skip",
+  "problem": "wrong_value",
+  "answers": [
+    {
+      "match": [
+        "how did you hear"
+      ],
+      "value": "Company website | Yes"
+    }
+  ]
+}

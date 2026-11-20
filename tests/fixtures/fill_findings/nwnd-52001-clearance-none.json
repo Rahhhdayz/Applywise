@@ -1,0 +1,14 @@
+{
+  "tenant": "nwnd",
+  "label": "Please indicate your current security clearance level",
+  "kind": "select",
+  "options": [
+    "Secret",
+    "Top Secret",
+    "TS/SCI with Poly",
+    "None / Not Required"
+  ],
+  "expected": "screening.clearance",
+  "wrong_source": "custom",
+  "problem": "left_empty"
+}

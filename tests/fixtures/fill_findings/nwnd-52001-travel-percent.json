@@ -1,0 +1,14 @@
+{
+  "tenant": "nwnd",
+  "label": "What percentage of travel are you willing to do?",
+  "kind": "select",
+  "options": [
+    "0%",
+    "Up to 25%",
+    "Up to 50%",
+    "Up to 75%"
+  ],
+  "expected": "screening.travel",
+  "wrong_source": "custom",
+  "problem": "left_empty"
+}

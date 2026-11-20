@@ -1,0 +1,17 @@
+<!doctype html>
+<html>
+<body onclick="window.__clicks.push(event.target.outerHTML.slice(0, 80))">
+<script>window.__clicks = []; window.__submitted = false;</script>
+<form id="application-form" onsubmit="window.__submitted = true; return false;">
+  <p>A verification code was sent to e***@example.test. Enter the 8-character code to submit your application.</p>
+  <label>Security code</label>
+  <div class="security-code">
+    <input maxlength="1" id="security-input-0"><input maxlength="1" id="security-input-1">
+    <input maxlength="1" id="security-input-2"><input maxlength="1" id="security-input-3">
+    <input maxlength="1" id="security-input-4"><input maxlength="1" id="security-input-5">
+    <input maxlength="1" id="security-input-6"><input maxlength="1" id="security-input-7">
+  </div>
+  <button type="submit">Submit application</button>
+</form>
+</body>
+</html>

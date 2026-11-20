@@ -1,0 +1,9 @@
+{
+  "tenant": "nwnd",
+  "label": "Password*",
+  "kind": "text",
+  "options": [],
+  "wrong_source": "password",
+  "expected": "skip",
+  "problem": "should_be_empty"
+}

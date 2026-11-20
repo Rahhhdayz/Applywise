@@ -1,0 +1,27 @@
+{
+  "tenant": "known",
+  "label": "Field of Study",
+  "kind": "select",
+  "options": [
+    "Cybersecurity Law and Policy",
+    "Computer Science"
+  ],
+  "wrong_source": "answer:field of study",
+  "expected": "skip",
+  "problem": "wrong_value",
+  "answers": [
+    {
+      "match": [
+        "field of study"
+      ],
+      "value": "Example answer"
+    }
+  ],
+  "education": [
+    {
+      "school": "Example University",
+      "degree": "Masters",
+      "field_of_study": "Cybersecurity"
+    }
+  ]
+}

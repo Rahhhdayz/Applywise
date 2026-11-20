@@ -1,0 +1,12 @@
+{
+  "tenant": "contoso",
+  "label": "Will you require sponsorship to work in Canada?",
+  "kind": "radio",
+  "options": [
+    "Yes",
+    "No"
+  ],
+  "wrong_source": "auth.sponsorship",
+  "expected": "skip",
+  "problem": "wrong_value"
+}

@@ -1,0 +1,14 @@
+candidate:
+  candidate_id: example_candidate
+  display_name: Example Candidate
+  education_level: Bachelor's degree
+  professional_years: 1
+  internship_years: 1
+  work_authorization: configured by candidate
+  remote_preference: open
+  relocation_willing: true
+  preferred_locations:
+    - United States
+  # Private files live locally and are ignored by Git.
+  master_resume_path: candidate/master_resume.pdf
+  reference_paths: []

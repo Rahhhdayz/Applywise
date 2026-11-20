@@ -1,0 +1,23 @@
+[Unit]
+Description=JobAgent Telegram bot (long polling; serves only TELEGRAM_CHAT_ID)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=jobagent
+WorkingDirectory=/home/jobagent/jobagent
+Environment=TZ=America/New_York
+Environment=PATH=/home/jobagent/.local/bin:/home/jobagent/.npm-global/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/home/jobagent/.local/bin/uv run jobagent bot
+Restart=always
+RestartSec=10
+# A cycle started with /run must survive a bot restart.
+KillMode=process
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ReadWritePaths=/home/jobagent
+
+[Install]
+WantedBy=multi-user.target

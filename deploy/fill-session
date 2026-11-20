@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# A virtual display for headed form fills, viewable only through an SSH tunnel (VNC on localhost).
+# From the Mac:  ssh -L 5901:localhost:5901 jobagent@<vps> -t 'tmux new -A -s fill ~/bin/fill-session'
+#                open vnc://localhost:5901
+set -euo pipefail
+pgrep -x Xvfb >/dev/null || { Xvfb :99 -screen 0 1600x1000x24 -nolisten tcp & sleep 1; }
+pgrep -x openbox >/dev/null || DISPLAY=:99 openbox &
+pgrep -x x11vnc >/dev/null || x11vnc -display :99 -localhost -rfbport 5901 -forever -shared -rfbauth ~/.vnc/passwd -quiet -bg
+cd ~/jobagent && DISPLAY=:99 exec bash

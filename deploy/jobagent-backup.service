@@ -1,0 +1,8 @@
+[Unit]
+Description=Nightly consistent SQLite snapshot (14 kept)
+
+[Service]
+Type=oneshot
+User=jobagent
+WorkingDirectory=/home/jobagent/jobagent
+ExecStart=/bin/sh -c 'mkdir -p backups && sqlite3 data/jobagent.sqlite3 ".backup backups/jobagent-$(date +%%F).sqlite3" && ls -1t backups/jobagent-*.sqlite3 | tail -n +15 | xargs -r rm --'
