@@ -98,9 +98,9 @@ flowchart TB
 | **Cover letters** | AI writes the body from your truth files and must cite real evidence IDs. It is validated for length and page fit. | A good first draft in minutes |
 | **Outreach and follow-ups** | Finds a contact and drafts a short email and follow-ups. Drafts only, never sent. | Networking without a blank page |
 | **Notion** | Pushes packets to a board and pulls status edits back, forward only | Your whole pipeline on one screen |
-| **Telegram bot** | Slash commands plus plain English, scoped to one chat ID, with a confirm tap for anything that changes state | Run the search from your phone |
+| **Telegram bot** | Slash commands plus plain English (Codex router, Haiku fallback), read-only job search over SQLite, `/fill` to start an unattended draft; scoped to one chat ID, with a confirm tap for anything that changes state | Run the search from your phone |
 | **Gmail tracking** | Read-only IMAP. Rules classify replies (interview, rejection, offer and so on), with an AI fallback only when needed. Changes are proposed, then approved. | Never miss a recruiter reply |
-| **Form pre-fill** | Playwright fills Workday, Greenhouse, Lever, Ashby, iCIMS, SuccessFactors and more: sign-in, emailed codes, uploads, drafted answers, per-step AI review, practice mode | Applications in minutes, not an hour |
+| **Form pre-fill** | Links are resolved to the real ATS form first. Playwright fills Workday, Greenhouse, Lever, Ashby, iCIMS, SuccessFactors and more: sign-in, emailed codes, uploads, drafted answers, per-step AI review, practice mode | Applications in minutes, not an hour |
 | **Scheduling** | launchd (macOS) or systemd units (Linux VPS), plus Telegram notifications and a daily digest | It runs while you sleep |
 
 ## Safety and integrity
@@ -178,7 +178,7 @@ Every command accepts `--database PATH` before the subcommand. Run `uv run jobag
 | `followup list \| draft \| sent`, `outcome sweep` | Follow-up drafts (never sent), close quiet applications |
 | `outreach --job-id N \| --queue` | Find a contact and draft an email (never sent) |
 | `notify`, `digest send` | Telegram notifications and daily digest |
-| `bot` | Run the Telegram bot (long polling) |
+| `bot` | Run the Telegram bot (long polling): chat, read-only job search, `/fill` |
 | `schedule generate \| status \| bot [--install]` | Render or install macOS launchd schedules |
 | `add-demo-job` | Insert a fixed demo job (try it twice to see dedup) |
 
@@ -207,9 +207,16 @@ the same checks on every push.
 - The SSRF guard is basic: DNS rebinding is not fully prevented. Outreach email addresses are pattern guesses and
   may bounce.
 
+## Unattended draft from Telegram
+
+`/fill <id or job URL>` (after a confirm tap) runs `apply fill --job-id <id> --unattended` in the background. It is
+practice mode run to the final step: it clicks only Next, Continue or Save and Continue, then one exact
+"Save for Later" on the last step, and never Submit. On Workday it confirms the saved draft on the candidate home
+page and sends you the link and what to review; on single-page forms the filled form stays open for you. You still
+press Submit yourself.
+
 ## Roadmap
 
-- Start a pre-fill from Telegram (planned).
 - Resolve more applicant-tracking systems and short links automatically.
 - Add DNS-pinned fetching for stronger SSRF protection.
 - Improve Linux PDF layout parity with Word.

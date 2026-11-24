@@ -156,12 +156,24 @@ Application-form pre-fill (`jobagent/apply/`) sends page text to AI in exactly t
   no value. `--oversight-fix` may only apply such validated values to fields JobAgent itself filled.
 * the free-text answer drafter (`answers.py`): facts only from the candidate truth files; the job
   description is untrusted data; the answer is validated (plain text, 60-150 words) and only typed
-  into empty fields, marked `ai_draft` for Master to review.
+  into empty fields, marked `ai_draft` for the user to review.
 
 The Workday password is never sent to AI. Email verification links are followed only when the
 host is a Workday domain, and security codes are typed but never logged. Submit stays human:
 practice mode (`apply train` / `--practice`) may click Next / Continue / Save and Continue only,
-and any submit-like control blocks the click in code.
+and any submit-like control blocks the click in code. Unattended mode (`apply fill --unattended`, started
+only from the authorized Telegram chat after a ✅ tap via `/fill`) is practice mode run to the final step,
+plus one exact-text "Save for Later" click there (`guard_save_click`; still blocked if it looks like a
+submit). It then reads the Workday candidate home (no clicks) to confirm the draft and sends the user the link.
+It never clicks Submit; the user submits.
+
+The Telegram Codex router runs with tools disabled, a throwaway working directory, a minimal environment,
+and a validated `Intent` JSON schema; Haiku is its fallback. Search accepts only the typed `JobQuery`
+whitelist, uses bound SQLAlchemy parameters over a read-only SQLite connection, and formats results in
+Python without sending them to AI. Replies are plain text, at most 800 characters, and reject links,
+mentions, HTML openers and backticks; replies and searches never change application state. Existing
+state-changing intents still require the ✅/❌ tap. Router logs contain metadata only, never message,
+prompt, reply or provider output text.
 
 ## Resume integrity
 
@@ -253,3 +265,21 @@ Before considering a task complete:
 
 Prefer a small working implementation over speculative complexity.
 
+
+## Parallel agent workflow
+
+Several agents (Claude or Codex) may build at once. These rules keep them from overwriting each other:
+
+* Every building agent works in its own git worktree on branch `<agent>/<feature>` (for example
+  `codex/telegram-query`), never in the main working tree. Worktrees live in `.worktrees/<feature>` inside the
+  repo (gitignored), never on the Desktop or elsewhere.
+* Each agent edits only its own `tasks/plans/<feature>.md` plus the files listed in its brief. Only the main
+  lead session edits `tasks/todo.md` (the index) and `tasks/lessons.md`; agents report lessons back instead.
+* Codex specs are immutable once handed off. A change is a new `_v2` file, never an edit.
+* Merge to master only with `git merge --no-ff`, after `scripts/ci.sh` passes and the lead agent has reviewed the diff
+  (the maintainer delegated merge approval to the lead agent, which reports each merge). The
+  `pre-merge-commit` hook runs `scripts/ci.sh` and blocks a red merge. Conflicts are resolved by the reviewer,
+  never by overwriting one side.
+* No bulk edits to shared files: no regex/sed over a whole `todo.md`, `lessons.md` or `AGENTS.md`.
+* Hooks live in `scripts/hooks/` (tracked); run `scripts/install-hooks.sh` once per clone. `pre-commit` runs Ruff,
+  `pre-merge-commit` and `pre-push` run the full `scripts/ci.sh`. Never bypass them with `--no-verify`.

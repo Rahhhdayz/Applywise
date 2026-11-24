@@ -3,7 +3,8 @@
 Security model: only the one chat in TELEGRAM_CHAT_ID is served; everything else is ignored and
 logged. Message text is never handed to a shell; subprocesses get fixed argv lists with job IDs
 parsed as ints. Job page text is untrusted data: it is only matched against fixed keywords.
-The bot never submits applications and never sends email.
+The bot never submits applications and never sends email. ``/fill`` runs ``apply fill --unattended`` (or
+``apply url --unattended``) as one background child after a ✅ tap; that child stops at the final step.
 """
 
 from __future__ import annotations
@@ -12,6 +13,8 @@ import logging
 import os
 import queue
 import re
+import shutil
+import signal
 import subprocess
 import sys
 import threading
@@ -64,7 +67,12 @@ HELP = """JobAgent bot commands
 /inbox — check Gmail for employer replies (read-only); asks before changing any status
 /email <id> — the full text of one recorded employer email (plain text, read-only)
 /queue [yesterday|YYYY-MM-DD] — that day's cycle counts and queue (default today)
-/help — this list"""
+/fill <id or job URL> — fill the application on the Mac and save a draft; sends the link (never submits)
+/fillstatus — the running fill and its log tail
+/cancel — stop the running fill (closes its browser; nothing is submitted)
+/help — this list
+Or ask: "any SOC analyst roles I applied to?", "which SOC roles did I apply to last week",
+"how many Workday apps are drafted", or "jobs scoring 80+ in Boston"."""
 
 _URL = re.compile(r"https?://\S+", re.IGNORECASE)
 _FLAGS = {  # untrusted text is only matched, never interpreted
@@ -184,6 +192,24 @@ def cycle_pid(lock: Path = LOCK_FILE) -> int | None:
     return pids[0] if pids else None
 
 
+def fill_argv(database: str, target: int | str) -> list[str]:
+    """A fixed argv: the job ID as an int, or one validated URL. Wrapped in caffeinate so the Mac stays awake."""
+    base = [sys.executable, "-m", "jobagent.cli", "--database", database, "apply"]
+    if isinstance(target, int):
+        tail = ["fill", "--job-id", str(int(target)), "--unattended"]
+    elif valid_url(target):
+        tail = ["url", target, "--unattended"]
+    else:
+        raise ValueError("not a job ID or URL")
+    awake = [caffeinate, "-i"] if (caffeinate := shutil.which("caffeinate")) else []
+    return [*awake, *base, *tail]
+
+
+def _popen_fill(argv: list[str], log_path: Path) -> subprocess.Popen[bytes]:
+    with log_path.open("ab") as output:
+        return subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=output, stderr=subprocess.STDOUT, start_new_session=True)
+
+
 @dataclass
 class Bot:
     token: str
@@ -204,6 +230,8 @@ class Bot:
     context_path: Path | None = None  # None keeps the chat context in memory only
     logs: Path = Path("logs")
     urls: queue.Queue[str | int] = field(default_factory=queue.Queue)  # a link to import, or a job ID to prepare
+    spawn_fill: Callable[[list[str], Path], subprocess.Popen[bytes]] = _popen_fill
+    kill_group: Callable[[int, int], None] = os.killpg
 
     def __post_init__(self) -> None:
         self.send = self.send or TelegramNotifier(self.token, self.chat_id).send
@@ -217,6 +245,9 @@ class Bot:
         self._cycle: subprocess.Popen[bytes] | None = None
         self._preparing: set[int] = set()  # job IDs queued or running in the worker
         self._preparing_lock = threading.Lock()
+        self._fill: subprocess.Popen[bytes] | None = None  # one unattended fill at a time
+        self._fill_label, self._fill_started, self._fill_cancelled = "", 0.0, False
+        self._fill_lock = threading.Lock()
         self._outgoing = 0  # messages sent so far; a handler that sends none and returns nothing gets EMPTY_REPLY
         self.intents = self.intents or IntentRouter(self)
 
@@ -225,7 +256,9 @@ class Bot:
         return f"https://api.telegram.org/bot{self.token}/{method}"
 
     def redact(self, text: str) -> str:
-        return text.replace(self.token, "<token>") if self.token else text
+        text = text.replace(self.token, "<token>") if self.token else text
+        secret = os.getenv("WORKDAY_PASSWORD", "")
+        return text.replace(secret, "[redacted]") if secret else text
 
     def reply(self, text: str) -> None:
         assert self.send is not None
@@ -293,9 +326,15 @@ class Bot:
             ahead = self.urls.qsize() - 1
             return "on it…" + (f" ({ahead} link(s) ahead)" if ahead > 0 else "")
         handler = {"packet": self.cmd_packet, "prepare": self.cmd_prepare, "applied": self.cmd_applied, "status": self.cmd_status, "run": self.cmd_run,
-                   "progress": self.cmd_progress, "inbox": self.cmd_inbox, "email": self.cmd_email, "queue": self.cmd_queue, "help": lambda _: HELP, "start": lambda _: HELP}.get(command)
+                   "progress": self.cmd_progress, "fill": self.cmd_fill, "fillstatus": self.cmd_fillstatus, "cancel": self.cmd_cancel, "inbox": self.cmd_inbox, "email": self.cmd_email, "queue": self.cmd_queue, "help": lambda _: HELP, "start": lambda _: HELP}.get(command)
         if handler is None:
             if command == "unknown" and text.strip() and self.intents is not None:
+                try:
+                    response = self.http.post(self._api("sendChatAction"),
+                                              json={"chat_id": self.chat_id, "action": "typing"}, timeout=5)
+                    response.raise_for_status()
+                except Exception as error:  # noqa: BLE001 - a typing indicator is best effort
+                    log.warning("sendChatAction failed: %s", type(error).__name__)
                 return self.intents.handle_text(text)  # plain English; links and slash commands never get here
             return "Unknown message. Send a job link or /help."
         return handler(args)
@@ -367,6 +406,101 @@ class Bot:
         assert self.start_cycle is not None
         pid = self.start_cycle()
         return f"Cycle started at {datetime.now().astimezone():%H:%M %Z} (PID {pid}). Telegram will report its end."
+
+    # ---- unattended fill (one background child at a time) -------------------------------
+    def _fill_running(self) -> str | None:
+        if self._fill is not None and self._fill.poll() is None:
+            minutes = int((time.monotonic() - self._fill_started) // 60)
+            return f"A fill is running: {self._fill_label} (PID {self._fill.pid}, {minutes} min). /fillstatus or /cancel"
+        return None
+
+    def _fill_blocker(self, job: StoredJob) -> str | None:
+        if self.repository.get_latest_ready_packet(job.id) is None:
+            return f"Job #{job.id} has no ready packet. /prepare {job.id} first."
+        return self._fill_running()
+
+    def cmd_fill(self, args: list[str]) -> str | None:
+        """Ask ✅/❌, then fill one job unattended (draft, never submit)."""
+        usage = "/fill <job id or job URL>"
+        if args and valid_url(args[0]):
+            if (running := self._fill_running()) is not None:
+                return running
+            url = args[0]
+            question = f"Import, prepare and fill {url} on your Mac, then save a draft? JobAgent never submits."
+            assert self.intents is not None
+            self.intents.confirm(question, lambda: self.start_fill(url))
+            return None
+        job = self._job(args, usage)
+        if isinstance(job, str):
+            return job
+        if (blocked := self._fill_blocker(job)) is not None:
+            return blocked
+        assert self.intents is not None
+        self.intents.confirm(f"Fill #{job.id} {job.company} / {job.title} on your Mac and save a draft? "
+                             "JobAgent never submits.", lambda: self.start_fill(job.id))
+        return None
+
+    def start_fill(self, target: int | str) -> str:
+        """Start the child (after the ✅). Its own Telegram messages carry the draft link and summary."""
+        if isinstance(target, int):
+            job = self.repository.get_job(target)
+            if job is None:
+                return f"Job #{target} not found."
+            if (blocked := self._fill_blocker(job)) is not None:
+                return blocked
+            label = f"#{job.id} {job.company} / {job.title}"
+        else:
+            label = target
+        with self._fill_lock:
+            if (running := self._fill_running()) is not None:
+                return running
+            self.logs.mkdir(exist_ok=True)
+            process = self.spawn_fill(fill_argv(self.database, target), self.logs / "bot_fill.out")
+            self._fill, self._fill_label, self._fill_started, self._fill_cancelled = process, label, time.monotonic(), False
+        threading.Thread(target=self._watch_fill, args=(process,), daemon=True, name="fill-watch").start()
+        return (f"Filling {label} on your Mac (PID {process.pid}). It clicks Next / Continue / Save and Continue only and "
+                "stops at the final step; I'll send the link and what to review. /fillstatus, /cancel")
+
+    def _watch_fill(self, process: subprocess.Popen[bytes]) -> None:
+        """A child that failed before its own summary (no packet, import error, crash) still gets reported."""
+        code = process.wait()
+        if code == 0 or self._fill_cancelled or process is not self._fill:
+            return
+        try:
+            self.reply(f"Fill {self._fill_label} ended with exit code {code}. Last log lines:\n{self._fill_tail()}")
+        except Exception:  # noqa: BLE001
+            log.warning("Could not send the fill failure reply")
+
+    def _fill_tail(self, lines: int = 5) -> str:
+        path = self.logs / "bot_fill.out"
+        if not path.exists():
+            return "(no log yet)"
+        tail = path.read_text(errors="replace").splitlines()[-lines:]
+        return self.redact("\n".join(line[:300] for line in tail)) or "(empty)"
+
+    def cmd_fillstatus(self, _: list[str]) -> str:
+        running = self._fill_running()
+        head = running or (f"No fill running. Last: {self._fill_label}" if self._fill_label else "No fill running.")
+        return f"{head}\n{self._fill_tail()}"
+
+    def cmd_cancel(self, _: list[str]) -> str | None:
+        if self._fill_running() is None:
+            return "No fill running."
+        assert self.intents is not None
+        self.intents.confirm(f"Stop the fill of {self._fill_label}? Its browser closes; nothing is submitted.", self.cancel_fill)
+        return None
+
+    def cancel_fill(self) -> str:
+        with self._fill_lock:
+            process = self._fill
+            if process is None or process.poll() is not None:
+                return "No fill running."
+            self._fill_cancelled = True
+            try:
+                self.kill_group(process.pid, signal.SIGTERM)  # start_new_session: the child leads its own group
+            except ProcessLookupError:
+                return "That fill had already ended."
+        return f"Stopped the fill of {self._fill_label}. Nothing was submitted."
 
     def cmd_progress(self, _: list[str]) -> str:
         pid = self._running()

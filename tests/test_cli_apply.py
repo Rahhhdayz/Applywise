@@ -9,6 +9,7 @@ import pytest
 from jobagent import cli
 from jobagent.apply.filler import FilledField, FillReport
 from jobagent.db import JobRepository
+from jobagent.intake.resolve import DestinationResolution
 from jobagent.models import JobPosting
 
 
@@ -19,6 +20,7 @@ def no_notion(monkeypatch) -> None:  # type: ignore[no-untyped-def]
         raise RuntimeError("Notion not configured in tests")
 
     monkeypatch.setattr(cli, "notion_tracker", unavailable)
+    monkeypatch.setattr(cli, "resolve_destination", lambda *a, **k: None)
     monkeypatch.setattr(cli, "resolve_application_url", lambda *a, **k: None)  # never the real network
 
 
@@ -166,12 +168,13 @@ def test_apply_fill_resolves_a_linkedin_link_to_its_ats_form_and_saves_it(tmp_pa
     job = make_job(repository, source="linkedin", source_job_id="42", apply_url=linkedin, canonical_url=linkedin)
     repository.save_packet(job_id=job.id, fingerprint="fp", status="ready", packet_directory=str(tmp_path))
     form = "https://job-boards.greenhouse.io/embed/job_app?for=example&token=7"
-    monkeypatch.setattr(cli, "resolve_application_url", lambda *a, **k: form)
+    monkeypatch.setattr(cli, "resolve_destination", lambda *a, **k: DestinationResolution(form, "greenhouse", "test;title+company", 0.95))
     monkeypatch.setattr(cli, "fill_application_form", _fake_fill)
     monkeypatch.setattr(cli, "FILL_REPORTS", tmp_path / "fill_reports")
 
     assert cli.main(["--database", str(database), "apply", "fill", "--job-id", str(job.id)]) == 0
-    assert repository.get_job(job.id).apply_url == form  # saved, so the next fill needs no lookup
+    assert repository.get_job(job.id).resolved_destination_url == form
+    assert repository.get_job(job.id).apply_url == linkedin
 
 
 def _apply_url(tmp_path, monkeypatch, *, applied: bool):  # type: ignore[no-untyped-def]
@@ -196,7 +199,7 @@ def _apply_url(tmp_path, monkeypatch, *, applied: bool):  # type: ignore[no-unty
 
     form = "https://job-boards.greenhouse.io/embed/job_app?for=example&token=2"
     monkeypatch.setattr(cli, "UrlIntakeService", Intake)
-    monkeypatch.setattr(cli, "resolve_application_url", lambda *a, **k: form)
+    monkeypatch.setattr(cli, "resolve_destination", lambda *a, **k: DestinationResolution(form, "greenhouse", "test;title+company", 0.95))
     monkeypatch.setattr(cli, "fill_application_form", _fake_fill)
     monkeypatch.setattr(cli, "FILL_REPORTS", tmp_path / "fill_reports")
     code = cli.main(["--database", str(database), "apply", "url", "https://example.com/careers/2"])
@@ -207,7 +210,8 @@ def test_apply_url_keeps_the_copy_with_a_packet_skips_the_duplicate_and_fills(tm
     code, repository, old, new, form = _apply_url(tmp_path, monkeypatch, applied=False)
     assert code == 0
     assert repository.latest_statuses() == {old.id: "prefilled", new.id: "skipped"}
-    assert repository.get_job(old.id).apply_url == form
+    assert repository.get_job(old.id).resolved_destination_url == form
+    assert repository.get_job(old.id).apply_url == old.apply_url
 
 
 def test_apply_url_stops_on_an_opening_already_applied_to(tmp_path, monkeypatch, capsys) -> None:  # type: ignore[no-untyped-def]
@@ -235,7 +239,7 @@ def test_apply_url_imports_from_the_resolved_ats_not_the_careers_listing_page(tm
 
     ashby = "https://jobs.ashbyhq.com/stark/abc"
     monkeypatch.setattr(cli, "UrlIntakeService", Intake)
-    monkeypatch.setattr(cli, "resolve_application_url", lambda *a, **k: ashby)
+    monkeypatch.setattr(cli, "resolve_destination", lambda *a, **k: DestinationResolution(ashby, "ashby", "test;title+company", 0.95))
     monkeypatch.setattr(cli, "_run_prepare", lambda *a: 1)  # stop after import; this test is about the source
     cli.main(["--database", str(database), "apply", "url", "https://stark.ai/careers/open-positions/?ashby_jid=abc"])
     assert imported == [ashby]
@@ -274,3 +278,37 @@ def test_workable_posting_opens_its_apply_page(tmp_path) -> None:  # type: ignor
     job = make_job(repository, source="workable", apply_url=url, canonical_url=url)
     form = application_form(job)
     assert form is not None and form.form_url == url + "/apply/" and not form.multi_page
+
+
+@pytest.mark.parametrize(("draft", "status"), [("confirmed", "drafted"), ("not confirmed", "prefilled")])
+def test_apply_fill_unattended_sends_the_summary_and_records_drafted(tmp_path, capsys, monkeypatch, draft, status) -> None:  # type: ignore[no-untyped-def]
+    database = tmp_path / "jobs.sqlite3"
+    repository = JobRepository(database)
+    repository.initialize()
+    job = make_job(repository, source="workday", apply_url="https://acme.wd1.myworkdayjobs.com/External/job/B/E_R1",
+                   canonical_url="https://acme.wd1.myworkdayjobs.com/External/job/B/E_R1")
+    repository.save_packet(job_id=job.id, fingerprint="fp", status="ready", packet_directory=str(tmp_path))
+    sent: list[str] = []
+    seen: dict[str, object] = {}
+
+    def fake_fill(form, profile, *, job_id, oversight, deadline_seconds, on_done, **_):  # type: ignore[no-untyped-def]
+        seen.update(practice=oversight.practice, unattended=oversight.unattended, deadline=deadline_seconds)
+        report = FillReport(job_id, form.form_url, [FilledField("Email", "text", "filled", step=1)], finished="the Review page is open",
+                            draft=draft, links=("https://acme.wd1.myworkdayjobs.com/External/userHome", form.form_url))
+        on_done(report)  # before the window is held open
+        return report
+
+    monkeypatch.setattr(cli, "fill_application_form", fake_fill)
+    monkeypatch.setattr(cli, "FILL_REPORTS", tmp_path / "fill_reports")
+    monkeypatch.setattr(cli, "_telegram_notify", lambda: sent.append)
+    monkeypatch.setattr(cli.signal, "signal", lambda *a: None)  # leave pytest's own SIGTERM handling alone
+    assert cli.main(["--database", str(database), "apply", "fill", "--job-id", str(job.id), "--unattended", "--no-ai-answers",
+                     "--deadline-min", "5"]) == 0
+    assert seen == {"practice": True, "unattended": True, "deadline": 300}
+    assert repository.latest_statuses()[job.id] == status
+    assert len(sent) == 1 and "External/userHome" in sent[0] and "never submits" in sent[0]
+
+
+def test_apply_fill_unattended_refuses_without_the_step_review(tmp_path, capsys) -> None:  # type: ignore[no-untyped-def]
+    assert cli.main(["--database", str(tmp_path / "db.sqlite3"), "apply", "fill", "--job-id", "1", "--unattended", "--no-review"]) == 1
+    assert "need the step review" in capsys.readouterr().out

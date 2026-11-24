@@ -111,6 +111,7 @@ def bot_launchd_plist(repo: Path, uv: Path, path_env: str, label: str = "com.job
         "RunAtLoad": True,
         "KeepAlive": True,
         "ThrottleInterval": 30,
+        "AbandonProcessGroup": True,  # a bot restart must not kill a running /fill or /run child
         "StandardOutPath": str(repo / "logs" / "bot.out.log"),
         "StandardErrorPath": str(repo / "logs" / "bot.err.log"),
     }).decode()

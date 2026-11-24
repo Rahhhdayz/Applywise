@@ -121,6 +121,11 @@ class StoredJob:
     employment_type: str | None = None
     description_text: str | None = None
     apply_url: str | None = None
+    resolved_destination_url: str | None = None
+    resolved_ats: str | None = None
+    resolution_evidence: str | None = None
+    resolution_confidence: float | None = None
+    resolved_at: datetime | None = None
     posted_at: datetime | None = None
     has_active_observation: bool | None = None
     source_metadata: dict[str, object] = dataclass_field(default_factory=dict)
@@ -222,6 +227,7 @@ class JobRepository:
         Base.metadata.create_all(self._engine)
         self._add_milestone_3_columns()
         self._add_email_columns()
+        self._add_resolution_columns()
 
     def add_or_get_job(self, job: JobPosting) -> UpsertJobResult:
         """Insert a canonical job once and record the current source observation."""
@@ -307,6 +313,44 @@ class JobRepository:
         with self._sessions.begin() as session:
             record = session.get(JobRecord, job_id)
             if record: record.apply_url = url
+
+    def set_job_resolution(
+        self, job_id: int, *, destination_url: str | None, ats: str,
+        evidence: str, confidence: float,
+    ) -> None:
+        """Save deterministic resolution separately from original URLs and provenance."""
+        if not 0 <= confidence <= 1:
+            raise ValueError("Resolution confidence must be between zero and one")
+        with self._sessions.begin() as session:
+            record = session.get(JobRecord, job_id)
+            if record is None:
+                raise ValueError("Job not found")
+            record.resolved_destination_url = destination_url
+            record.resolved_ats = ats
+            record.resolution_evidence = evidence
+            record.resolution_confidence = confidence
+            record.resolved_at = utc_now()
+
+    def list_pending_resolutions(self, limit: int | None = None) -> list[StoredJob]:
+        """Eligible (latest evaluation) or queued jobs, excluding already handled applications."""
+        latest_eligibility = (
+            select(EligibilityRecord.status).where(EligibilityRecord.job_id == JobRecord.id)
+            .order_by(EligibilityRecord.evaluated_at.desc(), EligibilityRecord.id.desc())
+            .limit(1).correlate(JobRecord).scalar_subquery()
+        )
+        queued = select(ApplicationQueueRecord.id).where(
+            ApplicationQueueRecord.job_id == JobRecord.id, ApplicationQueueRecord.status == "queued"
+        ).exists()
+        handled = select(ApplicationStatusRecord.id).where(ApplicationStatusRecord.job_id == JobRecord.id).exists()
+        statement = select(JobRecord).where(
+            JobRecord.resolved_destination_url.is_(None),
+            (JobRecord.resolved_ats.is_(None) | (JobRecord.resolved_ats != "linkedin_easy_apply")),
+            (latest_eligibility == "eligible") | queued, ~handled,
+        ).order_by(JobRecord.id)
+        if limit is not None:
+            statement = statement.limit(max(0, limit))
+        with self._sessions() as session:
+            return [self._to_stored(record) for record in session.scalars(statement).all()]
 
     def count_jobs(self) -> int:
         """Return the number of canonical jobs."""
@@ -751,6 +795,18 @@ class JobRepository:
             if "mailbox" not in columns:
                 connection.exec_driver_sql("ALTER TABLE email_responses ADD COLUMN mailbox VARCHAR(200)")
 
+    def _add_resolution_columns(self) -> None:
+        """Idempotent additive migration; existing source URLs remain untouched."""
+        columns = {column["name"] for column in inspect(self._engine).get_columns("jobs")}
+        additions = {
+            "resolved_destination_url": "TEXT", "resolved_ats": "VARCHAR(64)",
+            "resolution_evidence": "TEXT", "resolution_confidence": "FLOAT", "resolved_at": "DATETIME",
+        }
+        with self._engine.begin() as connection:
+            for name, sql_type in additions.items():
+                if name not in columns:
+                    connection.exec_driver_sql(f"ALTER TABLE jobs ADD COLUMN {name} {sql_type}")
+
     @staticmethod
     def _find_equivalent_canonical_url(session, job: JobPosting) -> JobRecord | None:  # type: ignore[no-untyped-def]
         """Match only an exact canonical URL after source identity misses.
@@ -780,6 +836,11 @@ class JobRepository:
             employment_type=record.employment_type,
             description_text=record.description_text,
             apply_url=record.apply_url,
+            resolved_destination_url=record.resolved_destination_url,
+            resolved_ats=record.resolved_ats,
+            resolution_evidence=record.resolution_evidence,
+            resolution_confidence=record.resolution_confidence,
+            resolved_at=_as_utc(record.resolved_at) if record.resolved_at else None,
             posted_at=_as_utc(record.posted_at) if record.posted_at else None,
             has_active_observation=any(active_observations) if active_observations else None,
             source_metadata=dict(record.source_metadata or {}),

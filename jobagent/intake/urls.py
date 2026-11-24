@@ -90,7 +90,7 @@ def same_origin(first: str, second: str) -> bool:
     )
 
 
-def detect_source(url: str) -> str:
+def detect_ats_host(url: str) -> str:
     """Recognize ATS hostnames without calling their APIs."""
     hostname = (urlsplit(url).hostname or "").lower()
     source_hosts = {
@@ -98,6 +98,12 @@ def detect_source(url: str) -> str:
         "lever.co": "lever",
         "ashbyhq.com": "ashby",
         "myworkdayjobs.com": "workday",
+        "myworkday.com": "workday",
+        "successfactors.eu": "successfactors",
+        "adp.com": "adp",
+        "dayforcehcm.com": "dayforce",
+        "dayforce.com": "dayforce",
+        "applicantpro.com": "applicantpro",
         "smartrecruiters.com": "smartrecruiters",
         "applytojob.com": "jazzhr",
         "rippling.com": "rippling",
@@ -112,6 +118,14 @@ def detect_source(url: str) -> str:
     for suffix, source in source_hosts.items():
         if hostname == suffix or hostname.endswith(f".{suffix}"):
             return source
+    return "manual_url"
+
+
+def detect_source(url: str) -> str:
+    """Detect an ATS, including known custom-domain path conventions."""
+    source = detect_ats_host(url)
+    if source != "manual_url":
+        return source
     if urlsplit(url).path.startswith("/talentcommunity/apply/"):
         return "successfactors"  # SuccessFactors career sites on a company's own domain
     return "manual_url"

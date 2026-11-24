@@ -6,8 +6,10 @@ import argparse
 import logging
 import os
 import shutil
+import signal
 import sys
 import time
+from collections import Counter
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import replace
@@ -23,7 +25,7 @@ from jobagent.apply.filler import (
     fill_application_form,
     fill_in_tabs,
 )
-from jobagent.apply.oversight import Oversight
+from jobagent.apply.oversight import Oversight, unattended_summary
 from jobagent.apply.profile import (
     ApplicationConfigurationError,
     ApplicationProfile,
@@ -59,7 +61,7 @@ from jobagent.inbox import (
     run_inbox,
 )
 from jobagent.intake import IntakeError, UrlIntakeService
-from jobagent.intake.resolve import company_hint, resolve_application_url
+from jobagent.intake.resolve import company_hint, resolve_application_url, resolve_destination
 from jobagent.intake.urls import detect_source
 from jobagent.integrations import (
     TelegramNotifier,
@@ -128,6 +130,10 @@ def build_parser() -> argparse.ArgumentParser:
     subcommands.add_parser("add-demo-job", help="Insert the fixed demo job")
     add_url = subcommands.add_parser("add-url", help="Fetch and import a public job URL")
     add_url.add_argument("url", help="Public http(s) job URL")
+    resolve = subcommands.add_parser("resolve", help="Resolve pending jobs to verified ATS destinations")
+    resolve.add_argument("--pending", action="store_true", required=True)
+    resolve.add_argument("--limit", type=int)
+    resolve.add_argument("--dry-run", action="store_true", help="List pending counts without fetching or saving")
     scrape = subcommands.add_parser("scrape", help="Scrape job boards with python-jobspy")
     scrape_commands = scrape.add_subparsers(dest="scrape_command", required=True)
     scrape_profiles = scrape_commands.add_parser("profiles", help="List configured search profiles")
@@ -292,6 +298,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"URL: {job.canonical_url or args.url}")
         return 0
 
+    if args.command == "resolve":
+        return _run_resolve(repository, args)
+
     if args.command == "scrape":
         return _run_scrape_command(repository, args)
 
@@ -342,6 +351,31 @@ def main(argv: Sequence[str] | None = None) -> int:
     for job in jobs:
         location = job.location or "Unspecified"
         print(f"{job.id}\t{job.company}\t{job.title}\t{location}\t{job.canonical_source}")
+    return 0
+
+
+def _run_resolve(repository: JobRepository, args: argparse.Namespace) -> int:
+    if args.limit is not None and args.limit < 1:
+        print("--limit must be positive")
+        return 1
+    jobs = repository.list_pending_resolutions(args.limit)
+    if args.dry_run:
+        print(f"Would resolve: {len(jobs)} (no HTTP requests or resolution writes)")
+        return 0
+    counts: Counter[str] = Counter()
+    for index, job in enumerate(jobs):
+        if index:
+            time.sleep(1)
+        result = resolve_destination(job.apply_url or job.canonical_url or "", job.company, job.title, job.location)
+        if result is None:
+            counts["unresolved"] += 1
+            continue
+        repository.set_job_resolution(job.id, destination_url=result.destination_url, ats=result.ats,
+                                      evidence=result.evidence, confidence=result.confidence)
+        counts[result.ats] += 1
+    print(f"Processed: {len(jobs)}")
+    for ats, count in sorted(counts.items()):
+        print(f"{ats}: {count}")
     return 0
 
 
@@ -647,9 +681,16 @@ def _run_apply(repository: JobRepository, args: argparse.Namespace) -> int:
         return _run_apply_training(args)
     if args.apply_command == "train":
         args.practice, args.no_review, args.tabs = True, False, False
+    if getattr(args, "unattended", False):
+        if getattr(args, "tabs", False):
+            print("--unattended fills one job at a time; drop --tabs."); return 1
+        args.practice = True  # the same Next / Continue allowlist and submit guard as practice mode
     if getattr(args, "practice", False) and (args.no_review or os.getenv("JOBAGENT_FILL_REVIEW", "").casefold() == "off"):
-        print("--practice needs the step review (it only advances reviewed steps); drop --no-review / JOBAGENT_FILL_REVIEW=off.")
+        print("--practice / --unattended need the step review (they only advance reviewed steps); "
+              "drop --no-review / JOBAGENT_FILL_REVIEW=off.")
         return 1
+    if getattr(args, "unattended", False):
+        signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))  # Telegram /cancel: close the browser on the way out
     if getattr(args, "advance", False):
         print("--advance is deprecated and ignored: JobAgent never clicks Continue/Next/Submit; you click Continue.")
     profile = _load_profile_or_report()
@@ -667,7 +708,7 @@ def _run_apply(repository: JobRepository, args: argparse.Namespace) -> int:
             print(f"Job not found: {', '.join(map(str, missing))}")
             return 1
     elif args.ready:
-        done = {job_id for job_id, status in repository.latest_statuses().items() if status in {"applied", "prefilled", "skipped", "rejected", "expired"}}
+        done = {job_id for job_id, status in repository.latest_statuses().items() if status in {"applied", "prefilled", "drafted", "skipped", "rejected", "expired"}}
         ids = dict.fromkeys(packet.job_id for packet in repository.list_packets(status="ready") if packet.job_id not in done)
         jobs = [job for job in map(repository.get_job, ids) if job][:args.limit]
     else:
@@ -709,11 +750,14 @@ def _form_for(repository: JobRepository, job: StoredJob) -> tuple[StoredJob, App
     form = application_form(job)
     if form is not None:
         return job, form
-    resolved = resolve_application_url(job.apply_url or job.canonical_url or "", job.company, job.title, job.location)
-    if resolved is None:
+    if job.resolved_ats == "linkedin_easy_apply" or job.resolved_destination_url:
         return job, None
-    repository.set_job_apply_url(job.id, resolved)
-    print(f"Job #{job.id}: application form found at {resolved}")
+    result = resolve_destination(job.apply_url or job.canonical_url or "", job.company, job.title, job.location)
+    if result is None:
+        return job, None
+    repository.set_job_resolution(job.id, destination_url=result.destination_url, ats=result.ats,
+                                  evidence=result.evidence, confidence=result.confidence)
+    print(f"Job #{job.id}: {result.ats}")
     job = repository.get_job(job.id) or job
     return job, application_form(job)
 
@@ -729,19 +773,38 @@ def _fill_one(repository: JobRepository, job: StoredJob, profile: ApplicationPro
     resume_path = Path(packet.resume_pdf_path) if packet.resume_pdf_path else None
     cover_letter_path = Path(packet.cover_letter_pdf_path) if packet.cover_letter_pdf_path else None
     print(f"Job #{job.id}: opening {form.form_url}")
+    oversight = _oversight_for(job, args)
+    unattended = getattr(args, "unattended", False)
+
+    def record(report: FillReport) -> None:
+        report.write(FILL_REPORTS / f"job_{job.id}.json")
+        _print_ai_drafts(report)
+        if report.required_empty:
+            print(f"Job #{job.id}: {len(report.required_empty)} required field(s) left empty — review before submitting")
+        repository.set_application_status(job.id, "drafted" if report.draft == "confirmed" else "prefilled")
+        if unattended:  # before the browser is held open, so Master hears about it now
+            text = unattended_summary(report, oversight, form.provider)
+            print(text, flush=True)
+            for chunk in digest_chunks(text):
+                if oversight.notify is not None:
+                    try:
+                        oversight.notify(chunk)
+                    except Exception as error:  # noqa: BLE001 - the fill itself is done
+                        print(f"Telegram notification failed: {type(error).__name__}", flush=True)
+
     try:
         report = fill_application_form(
             form, profile.for_company(job.company), job_id=job.id, resume_path=resume_path, cover_letter_path=cover_letter_path,
-            slow_mo=args.slow_mo, profile_directory=args.profile_dir,
-            oversight=_oversight_for(job, args),
+            slow_mo=args.slow_mo, profile_directory=args.profile_dir, oversight=oversight,
+            **({"deadline_seconds": args.deadline_min * 60, "on_done": record} if unattended else {}),
         )
     except RuntimeError as error:
-        print(f"Job #{job.id}: could not fill form — {error}"); return False
-    report.write(FILL_REPORTS / f"job_{job.id}.json")
-    _print_ai_drafts(report)
-    if report.required_empty:
-        print(f"Job #{job.id}: {len(report.required_empty)} required field(s) left empty — review before submitting")
-    repository.set_application_status(job.id, "prefilled")
+        print(f"Job #{job.id}: could not fill form — {error}")
+        if unattended and oversight.notify is not None:
+            oversight.notify(f"JobAgent fill #{job.id} failed: {str(error)[:200]}")
+        return False
+    if not unattended:
+        record(report)
     return True
 
 
@@ -796,6 +859,12 @@ def _fill_switches(parser: argparse.ArgumentParser, *, training: bool = False) -
                                  "Continue / Save and Continue; stops for good at the Review page. Never clicks Submit")
         parser.add_argument("--no-review", action="store_true",
                             help="Skip the per-step AI review (env JOBAGENT_FILL_REVIEW=off)")
+        parser.add_argument("--unattended", action="store_true",
+                            help="Telegram /fill: practice-fill up to the final step (Next / Continue / Save and Continue, "
+                                 "then an exact 'Save for Later' if shown), confirm the Workday draft, send the link and a "
+                                 "summary to Telegram. Never clicks Submit")
+        parser.add_argument("--deadline-min", type=float, default=40,
+                            help="--unattended: give up (and ping Telegram) after this many minutes (default 40)")
     parser.add_argument("--review-model", default=TRAINING_MODEL if training else None,
                         help=f"Claude model for step reviews (default: {TRAINING_MODEL if training else RUNTIME_MODEL})")
     parser.add_argument("--notify", action="store_true", help="Also send review findings to Telegram")
@@ -821,7 +890,8 @@ def _oversight_for(job: StoredJob, args: argparse.Namespace) -> Oversight:
     if not getattr(args, "no_review", False) and os.getenv("JOBAGENT_FILL_REVIEW", "").casefold() != "off":
         model = getattr(args, "review_model", None)
         reviewer = ClaudeReviewer(model=model, timeout=300 if args.apply_command == "train" else RUNTIME_TIMEOUT_SECONDS)
-    return Oversight(job_id=job.id, job_label=f"#{job.id} {job.company} {job.title}", company=job.company,
+    return Oversight(job_id=job.id, job_label=f"#{job.id} {job.company} {job.title}", company=job.company, job_title=job.title,
+                     unattended=getattr(args, "unattended", False),
                      notify=_telegram_notify(), mail=reader_from_env(), drafter=drafter,
                      profile=load_application_profile("candidate").for_company(job.company), reviewer=reviewer,
                      practice=getattr(args, "practice", False), notify_findings=getattr(args, "notify", False),
@@ -873,7 +943,8 @@ def _import_opening(repository: JobRepository, url: str, *, force: bool) -> Stor
     """Import one pasted link as one opening: resolve its ATS form, dedupe by company + title."""
     # Resolve before importing: a careers listing page imports as a junk "job" (STARK, Oct 8), while the
     # ATS form behind it carries the real company and title.
-    resolved = resolve_application_url(url, company_hint(url), "")
+    resolution = resolve_destination(url, company_hint(url), "")
+    resolved = resolution.destination_url if resolution else None
     structured = resolved is not None and detect_source(resolved) in {"greenhouse", "ashby", "lever"}
     sources = [resolved, url] if structured else [url, resolved]
     imported, error = None, None
@@ -886,7 +957,7 @@ def _import_opening(repository: JobRepository, url: str, *, force: bool) -> Stor
         print(f"Could not extract a valid job posting: {error}"); return None
     copies = repository.find_opening(imported.company, imported.title) or [imported]
     statuses = repository.latest_statuses()
-    acted = [copy.id for copy in copies if statuses.get(copy.id) in {"applied", "prefilled"}]
+    acted = [copy.id for copy in copies if statuses.get(copy.id) in {"applied", "prefilled", "drafted"}]
     if acted and not force:
         print(f"{imported.company} / {imported.title} was already {statuses[acted[0]]} as job #{acted[0]} "
               "(one opening = company + title). Rerun with --force to apply again."); return None
@@ -896,9 +967,10 @@ def _import_opening(repository: JobRepository, url: str, *, force: bool) -> Stor
             repository.set_application_status(copy.id, "skipped", source="dedupe")
             print(f"Job #{copy.id}: duplicate of #{keep.id}, skipped")
     print(f"Job #{keep.id}: {keep.company} / {keep.title} ({keep.location or 'location unspecified'})")
-    resolved = resolved or resolve_application_url(url, keep.company, keep.title, keep.location)  # board lookup
-    if resolved and resolved != keep.apply_url:
-        repository.set_job_apply_url(keep.id, resolved)
+    resolution = resolution or resolve_destination(url, keep.company, keep.title, keep.location)
+    if resolution:
+        repository.set_job_resolution(keep.id, destination_url=resolution.destination_url, ats=resolution.ats,
+                                      evidence=resolution.evidence, confidence=resolution.confidence)
         keep = repository.get_job(keep.id) or keep
     return keep
 

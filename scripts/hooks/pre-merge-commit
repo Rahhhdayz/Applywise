@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Full gate before a merge commit (git merge --no-ff): Ruff + full pytest.
+set -euo pipefail
+exec "$(git rev-parse --show-toplevel)/scripts/ci.sh"

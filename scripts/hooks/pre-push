@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Full gate before any push (there is no remote; kept as a backstop): Ruff + full pytest.
+set -euo pipefail
+exec "$(git rev-parse --show-toplevel)/scripts/ci.sh"

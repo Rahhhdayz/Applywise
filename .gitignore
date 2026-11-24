@@ -62,3 +62,6 @@ context.md
 learnings.md
 plan_22.md
 tasks/
+
+# Agent worktrees
+.worktrees/

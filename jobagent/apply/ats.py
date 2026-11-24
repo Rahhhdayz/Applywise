@@ -40,37 +40,37 @@ _RESUME_INPUT_SELECTOR = "input[type=file]"
 
 
 def _greenhouse_url(job: StoredJob) -> str:
-    return job.apply_url or job.canonical_url or ""
+    return job.resolved_destination_url or job.apply_url or job.canonical_url or ""
 
 
 def _icims_url(job: StoredJob) -> str:
     """iCIMS renders its forms in an iframe; open the iframe's own page so the form is the top frame."""
-    parts = urlsplit(job.apply_url or job.canonical_url or "")
+    parts = urlsplit(job.resolved_destination_url or job.apply_url or job.canonical_url or "")
     query = "&".join(item for item in parts.query.split("&") if item and not item.startswith("in_iframe="))
     return urlunsplit(parts._replace(query=f"{query}&in_iframe=1" if query else "in_iframe=1"))
 
 
 def _lever_url(job: StoredJob) -> str:
-    parts = urlsplit(job.apply_url or job.canonical_url or "")
+    parts = urlsplit(job.resolved_destination_url or job.apply_url or job.canonical_url or "")
     path = parts.path.rstrip("/")
     return urlunsplit(parts._replace(path=path if path.endswith("/apply") else f"{path}/apply"))
 
 
 def _ashby_url(job: StoredJob) -> str:
-    parts = urlsplit(job.apply_url or job.canonical_url or "")
+    parts = urlsplit(job.resolved_destination_url or job.apply_url or job.canonical_url or "")
     path = parts.path.rstrip("/")
     return urlunsplit(parts._replace(path=path if path.endswith("/application") else f"{path}/application"))
 
 
 def _workable_url(job: StoredJob) -> str:
     """Workable's posting page links to a single-page form at <posting>/apply/."""
-    parts = urlsplit(job.apply_url or job.canonical_url or "")
+    parts = urlsplit(job.resolved_destination_url or job.apply_url or job.canonical_url or "")
     path = parts.path.rstrip("/")
     return urlunsplit(parts._replace(path=f"{path if path.endswith('/apply') else path + '/apply'}/", query=""))
 
 
 def _rippling_url(job: StoredJob) -> str:
-    base = (job.apply_url or job.canonical_url or "").split("?")[0].rstrip("/")
+    base = (job.resolved_destination_url or job.apply_url or job.canonical_url or "").split("?")[0].rstrip("/")
     base = base if base.endswith("/apply") else f"{base}/apply"
     return f"{base}?step=application"
 
@@ -94,7 +94,9 @@ _URL_BUILDERS = {
 
 def application_form(job: StoredJob) -> ApplicationForm | None:
     """Return the application form for one job, or None for an unsupported ATS."""
-    provider = detect_source(job.apply_url or job.canonical_url or "")
+    if job.resolved_ats == "linkedin_easy_apply":
+        return None
+    provider = detect_source(job.resolved_destination_url or job.apply_url or job.canonical_url or "")
     builder = _URL_BUILDERS.get(provider)
     if builder is None:
         return None

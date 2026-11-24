@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 # Forward progress, earliest first. A pulled status may only move a job further along this line.
-PROGRESS = ("ready", "prefilled", "applied", "recruiter_screen", "interview", "offer")
+PROGRESS = ("ready", "prefilled", "drafted", "applied", "recruiter_screen", "interview", "offer")
 # Outcomes that close an application. "ghosted" can still be reopened by a reply (forward move).
 TERMINAL = ("rejected", "ghosted", "skipped", "expired")
 APPLICATION_STATUSES = frozenset(PROGRESS + TERMINAL)

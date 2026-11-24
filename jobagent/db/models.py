@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from jobagent.db.base import Base
@@ -27,6 +27,11 @@ class JobRecord(Base):
     description_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     apply_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     canonical_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    resolved_destination_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    resolved_ats: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    resolution_evidence: Mapped[str | None] = mapped_column(Text, nullable=True)
+    resolution_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     posted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     discovered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

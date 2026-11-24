@@ -13,7 +13,9 @@ in a tab of the same browser. It never clicks a step's "Continue", "Next", "Save
 or "Submit": it fills the step on screen, Master reviews it and clicks Continue himself, and the next
 step is filled when it appears. The one exception is practice mode (training rounds only, ``apply train``
 / ``--practice``, see ``practice.py``): it may click exactly Next / Continue / Save and Continue after a
-step was filled, snapshotted and reviewed; any submit-like control blocks the click in code. Emailed
+step was filled, snapshotted and reviewed; any submit-like control blocks the click in code. Unattended mode
+(``--unattended``, Telegram ``/fill``) is practice mode run to the final step, plus one exact "Save for Later"
+click there; it then reads Workday's candidate home (no clicks) to confirm the draft. Emailed
 security codes are typed with ``fill`` only. It never clicks any other button or link and never calls ``submit``. It presses Enter only inside a
 Workday search prompt (``_search_pick``), where Enter runs the prompt's search, never on a form or button,
 so there is no code path here that can trigger a browser-side form submission.
@@ -37,8 +39,8 @@ from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from playwright.sync_api import BrowserContext, Locator, Page, sync_playwright
 from playwright.sync_api import Error as PlaywrightError
-from playwright.sync_api import Locator, Page, sync_playwright
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 from jobagent.apply.answers import wants_draft
@@ -52,12 +54,14 @@ from jobagent.apply.fields import (
     match_option,
 )
 from jobagent.apply.oversight import Oversight
+from jobagent.apply.practice import candidate_home_url, draft_listed
 from jobagent.apply.profile import ApplicationProfile, EducationEntry
 from jobagent.apply.snapshot import LABEL_FUNCTIONS
 from jobagent.intake.urls import validate_public_url
 from jobagent.normalization import normalize_title
 
 DEFAULT_PROFILE_DIRECTORY = Path("data/browser-profile")
+HOLD_OPEN_SECONDS = 2 * 60 * 60  # unattended: a form without a confirmed draft stays open this long for Master
 
 # Walks one form, tagging each supported control with a stable index attribute
 # and returning a plain-data descriptor per field. Radio buttons are grouped by
@@ -223,6 +227,9 @@ class FillReport:
     job_id: int
     form_url: str
     fields: list[FilledField]
+    finished: str = ""  # unattended: why the run ended
+    draft: str = ""  # unattended: "confirmed" | "not confirmed" | "" (no draft support / not reached)
+    links: tuple[str, ...] = ()  # unattended: where Master resumes the draft
 
     @property
     def required_empty(self) -> list[FilledField]:
@@ -234,6 +241,8 @@ class FillReport:
             "form_url": self.form_url,
             "fields": [asdict(item) for item in self.fields],
         }
+        if self.finished:
+            payload |= {"finished": self.finished, "draft": self.draft, "links": list(self.links)}
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(payload, indent=2))
 
@@ -250,12 +259,18 @@ def fill_application_form(
     slow_mo: float = 0,
     wait_for_review: bool = True,
     oversight: Oversight | None = None,
+    deadline_seconds: float | None = None,
+    on_done: Callable[[FillReport], None] | None = None,
 ) -> FillReport:
     """Open the form in a dedicated browser and pre-fill known fields.
 
     This never submits the form. When ``wait_for_review`` is true (the default,
     disabled only in tests), it blocks until the human presses Enter after
     reviewing and, if satisfied, submitting the form themselves.
+
+    Unattended (``oversight.unattended``): practice runs to the final step (or ``deadline_seconds``),
+    the Workday draft is checked, ``on_done`` gets the report, and only a form without a confirmed
+    draft is then held open for Master (``HOLD_OPEN_SECONDS``).
     """
     global _TYPE_DELAY_MS
     _TYPE_DELAY_MS = 60 if slow_mo else 0  # a watched (--slow-mo) fill types text out like a person
@@ -265,30 +280,57 @@ def fill_application_form(
         context = playwright.chromium.launch_persistent_context(
             str(profile_directory), headless=headless, slow_mo=slow_mo
         )
+        unattended = oversight is not None and oversight.unattended
         try:
             page = context.pages[0] if context.pages else context.new_page()
             fields = _open_and_fill(page, safe_url, form, profile, resume_path=resume_path,
                                     cover_letter_path=cover_letter_path, oversight=oversight)
             fields = [replace(item, step=1) for item in fields]
             if form.multi_page:
-                print("Review each step and click Continue yourself (JobAgent never does); each new step is "
-                      "filled as it appears. Close the window when done.", flush=True)
+                print("Unattended: JobAgent clicks Next / Continue / Save and Continue up to the final step, never Submit."
+                      if unattended else "Review each step and click Continue yourself (JobAgent never does); each new "
+                      "step is filled as it appears. Close the window when done.", flush=True)
                 fields = _watch_steps(page, form, profile, resume_path=resume_path, cover_letter_path=cover_letter_path,
-                                      oversight=oversight, initial=fields)
+                                      oversight=oversight, initial=fields,
+                                      deadline=time.monotonic() + deadline_seconds if deadline_seconds else None)
             else:
                 if oversight is not None:
                     oversight.after_step(page, form, "", fields)
-                if wait_for_review:
+                    if unattended:
+                        oversight.finished = "single-page form filled (no draft support; nothing clicked)"
+                if wait_for_review and not unattended:
                     _wait_for_review(page, on_poll=oversight.poll if oversight is not None else None)
             if oversight is not None:
                 oversight.close()
                 fields += oversight.extra_fields
+            report = FillReport(job_id=job_id, form_url=safe_url, fields=fields)
+            if unattended:
+                assert oversight is not None
+                report = _finish_unattended(context, form, oversight, report)
+                if on_done is not None:
+                    on_done(report)
+                if report.draft != "confirmed" and wait_for_review:
+                    _wait_for_review(page, interactive=False, on_poll=oversight.poll,
+                                     until=time.monotonic() + HOLD_OPEN_SECONDS)
         finally:
             context.close()
-    return FillReport(job_id=job_id, form_url=safe_url, fields=fields)
+    return report
 
 
-def _wait_for_review(page: Page, *, interactive: bool | None = None, on_poll: Callable[[Page], None] | None = None) -> None:
+def _finish_unattended(context: BrowserContext, form: ApplicationForm, oversight: Oversight, report: FillReport) -> FillReport:
+    """Workday only: was the final step reached, and does the candidate home list this application?"""
+    home = candidate_home_url(form.form_url) if form.provider == "workday" else None
+    draft, links = "", ()
+    if home is not None:
+        links = (home, form.form_url)
+        draft = "not confirmed"
+        if oversight.at_final and draft_listed(context, home, oversight.job_title):
+            draft = "confirmed"
+    return replace(report, finished=oversight.finished or "window closed", draft=draft, links=links)
+
+
+def _wait_for_review(page: Page, *, interactive: bool | None = None, on_poll: Callable[[Page], None] | None = None,
+                     until: float | None = None) -> None:
     """Hold the window open for Master's review. With a terminal, Enter ends it; without one (a
     background run, a VNC session, cron), closing the window does: input() would hit EOF at once
     and close the browser before Master saw the form. Closing the window always ends it.
@@ -299,6 +341,9 @@ def _wait_for_review(page: Page, *, interactive: bool | None = None, on_poll: Ca
     print("Review the filled application in the browser, then " + ("press Enter here" if tty else "close the window")
           + " (JobAgent will not submit it for you).", flush=True)
     while any(not candidate.is_closed() for candidate in page.context.pages):  # ponytail: 2s polling
+        if until is not None and time.monotonic() > until:
+            print("Hold time is over; closing the browser (nothing was submitted).", flush=True)
+            return
         if on_poll is not None and not page.is_closed():
             try:
                 on_poll(page)
@@ -1079,6 +1124,7 @@ def _watch_steps(
     cover_letter_path: Path | None,
     oversight: Oversight | None = None,
     initial: list[FilledField] | None = None,
+    deadline: float | None = None,
 ) -> list[FilledField]:
     """Fill each wizard step when the human reaches it, then leave it alone for review.
 
@@ -1099,6 +1145,13 @@ def _watch_steps(
     while True:  # ponytail: 2s polling until Master closes the window
         open_pages = [candidate for candidate in page.context.pages if not candidate.is_closed()]
         if not open_pages:  # window closed
+            break
+        if oversight is not None and oversight.finished:  # unattended: the final step was reached (or it stopped)
+            break
+        if deadline is not None and time.monotonic() > deadline:
+            if oversight is not None:
+                oversight.finished = f"timed out on step {step}"
+                oversight.needs_you(f"unattended fill timed out on step {step}; the form is open on your Mac")
             break
         try:
             if open_pages[-1] is not page:  # "Apply" opened the form in a new tab (or this tab closed): follow it

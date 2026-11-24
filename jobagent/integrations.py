@@ -11,7 +11,7 @@ from jobagent.regions import job_country
 
 NOTION_API = "https://api.notion.com/v1"
 NOTION_VERSION = "2025-09-03"
-NOTION_STATUSES = ("Ready", "Prefilled", "Applied", "Recruiter Screen", "Interview", "Offer", "Skipped", "Rejected", "Ghosted")
+NOTION_STATUSES = ("Ready", "Prefilled", "Drafted", "Applied", "Recruiter Screen", "Interview", "Offer", "Skipped", "Rejected", "Ghosted")
 # Properties JobAgent writes; the database's own title property is reused, never renamed.
 NOTION_PROPERTIES: dict[str, dict[str, object]] = {
     "Company": {"rich_text": {}},
